@@ -23,8 +23,12 @@ function fractional(x)
   return frac
 end
 
-function branch(x)
-  f,i = findmin(abs(x-0.5))
+function branch(x,var_bin)
+  aux = Inf*ones(size(x))
+  for i in var_bin
+    aux[i] = x[i]
+  end
+  f,i = findmin(abs(aux-0.5))
   return i
 end
 
@@ -60,11 +64,18 @@ function BNB(model::JuMP.Model)
   # Relaxação linear
 
   status = solve(model, relaxation=true)
-
   x = copy(model.colVal)
   obj = copy(model.objVal)
 
   sense = model.objSense
+
+  index = model.colCat
+  var_bin = []
+  for  i =1:size(index)[1]
+    if index[i] == :Bin
+      var_bin = copy([var_bin;[i]])
+    end
+  end
 
   frac = fractional(x)
 
@@ -73,6 +84,10 @@ function BNB(model::JuMP.Model)
     x_best = copy(x)
     sol = copy(obj)
     return sol,x_best
+  end
+
+  if status == :Infeasible
+    println("Problema inviável")
   end
 
   if sense == :Max
@@ -111,7 +126,7 @@ while ϵ >= 1.0e-10
 
       m = copy(lista[l].model)
       frac = copy(lista[l].frac)
-      i_ = branch(frac)
+      i_ = branch(frac,var_bin)
       m.colUpper[i_] = 0
       status = solve(m, relaxation=true)
       x = copy(m.colVal)
@@ -203,7 +218,7 @@ while ϵ >= 1.0e-10
       liminf = maximum(int_sol)
     else
       for l=1:L
-        if lista[l].nivel == nivel
+        if lista[l].nivel == nivel && lista[l].status != :Infeasible
          INFI = copy([INFI;[lista[l].inf]])
        end
         if lista[l].nivel == nivel && lista[l].x_int != []
@@ -225,11 +240,11 @@ while ϵ >= 1.0e-10
      nivel = nivel + 1
 
     if AUX != []
-       if sense == :Max
+      if sense == :Max
           t,r = size(AUX)
           for i=1:t
             if liminf == AUX[i,1]
-              x_best = Matrix(AUX[t,2:end]')'
+              x_best = Matrix(AUX[i,2:end]')'
               sol = liminf
             end
           end
@@ -237,7 +252,7 @@ while ϵ >= 1.0e-10
           t,r = size(AUX)
           for i=1:t
             if limsup == AUX[i,1]
-              x_best = Matrix(AUX[t,2:end]')'
+              x_best = Matrix(AUX[i,2:end]')'
               sol = limsup
             end
           end
