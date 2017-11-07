@@ -32,8 +32,10 @@ function branch(x,var_bin)
   return i
 end
 
-function poda(lista_,sense,liminf,limsup)
+function poda(lista_,sense,liminf,limsup,V)
   L = size(lista_)[1]
+  Visit = []
+  V_ = 0
   erase = []
   for l=1:L
     if lista_[l].status == :Infeasible
@@ -44,10 +46,12 @@ function poda(lista_,sense,liminf,limsup)
        erase = copy([erase;[l]])
      elseif lista_[l].visit == 1
       erase = copy([erase;[l]])
+      V_ = copy(V_) + 1
     end
   end
+  Visit = V_ + V
   lista = copy(deleteat!(lista_,erase))
-  return lista
+  return lista, Visit
 end
 
 function BNB(model::JuMP.Model)
@@ -56,13 +60,13 @@ function BNB(model::JuMP.Model)
   # Nodo raiz
   #-----------------------------------------------------------------------------
   # inicialização da Lista
-
+  Tempo = []
   lista = []
   x_best = []
   sol = []
   AUX = []
   # Relaxação linear
-
+  tic()
   status = solve(model, relaxation=true)
   x = copy(model.colVal)
   obj = copy(model.objVal)
@@ -114,8 +118,11 @@ L = 1
 int_sol = []
 
 ϵ = limsup - liminf
+iter = 1
+Max_iter = 1000
+Visit = 0
 
-while ϵ >= 1.0e-10
+while ϵ >= 1.0e-10 && iter <= Max_iter
 
 
   for l=1:L
@@ -155,8 +162,8 @@ while ϵ >= 1.0e-10
         x_int = []
       end
 
-    raiz = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
-    push!(lista,raiz)
+    filho1 = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
+    push!(lista,filho1)
 
     #############################################################################
     # Nodo filho 2
@@ -190,8 +197,8 @@ while ϵ >= 1.0e-10
       x_int = []
     end
 
-    raiz = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
-    push!(lista,raiz)
+    filho2 = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
+    push!(lista,filho2)
     lista[l].visit = 1
   end
   ##############################################################################
@@ -233,7 +240,8 @@ while ϵ >= 1.0e-10
     end
 
 
-    lista = copy(poda(lista,sense,liminf,limsup))
+    lista,Visit = poda(lista,sense,liminf,limsup,Visit)
+
     L = size(lista)[1]
    ϵ = limsup - liminf
 
@@ -244,7 +252,7 @@ while ϵ >= 1.0e-10
           t,r = size(AUX)
           for i=1:t
             if liminf == AUX[i,1]
-              x_best = Matrix(AUX[i,2:end]')'
+              x_best = AUX[i,2:end]
               sol = liminf
             end
           end
@@ -252,15 +260,29 @@ while ϵ >= 1.0e-10
           t,r = size(AUX)
           for i=1:t
             if limsup == AUX[i,1]
-              x_best = Matrix(AUX[i,2:end]')'
+              x_best = AUX[i,2:end]
               sol = limsup
             end
           end
       end
     end
-
+    iter = copy(iter) + 1
 end
 
-return sol,x_best
+if iter == Max_iter && x_best != []
+  status = :Subotimal
+elseif ϵ < 1.0e-10 && x_best == []
+  status = :Infeasible
+elseif iter == Max_iter && x_best == []
+  status = :Nosolutionfound
+else
+  status = :Optimal
+end
+solution =raiz.model
+solution.objVal = sol
+solution.colVal = x_best
+solution.objBound = ϵ
+Tempo = toc()
+return solution,status,Tempo, Visit
 
 end
