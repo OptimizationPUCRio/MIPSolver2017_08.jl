@@ -3,7 +3,7 @@ using JuMP, DataStructures
 
 mutable struct nodo
   nivel::Int64
-  model::JuMP.Model
+  Model::JuMP.Model
   inf::Float64
   sup::Float64
   x_relax::Vector{Float64}
@@ -14,7 +14,7 @@ mutable struct nodo
 end
 
 function fractional(x)
-  s = size(x)
+  s = length(x)
   frac = Array{Float64,1}(s)
 
   for i=1:s[1]
@@ -54,7 +54,60 @@ function poda(lista_,sense,liminf,limsup,V)
   return lista, Visit
 end
 
-function BNB(model::JuMP.Model)
+function deep(m::JuMP.Model,var_bin,frac)
+  m_ = copy(m)
+    N = 1
+    liminf = []
+    limsup = []
+    obj = []
+    x_best = []
+    x = []
+    k = 1
+    sense = m_.objSense
+    status = :Optimal
+    while frac != zeros(size(frac)) && status == :Optimal
+      i_ = branch(frac,var_bin)
+      if mod(k,2) == 0
+         m_.colUpper[i_] = 0
+         status = solve(m_, relaxation=true)
+         x = copy(m_.colVal)
+         obj = copy(m_.objVal)
+         frac = fractional(x)
+      else
+        m_.colLower[i_] = 1
+        status = solve(m_, relaxation=true)
+        x = copy(m_.colVal)
+        obj = copy(m_.objVal)
+        frac = fractional(x)
+      end
+      k = k + 1
+      N = N + 1
+    end
+
+
+  if sense == :Max
+    if status == :Optimal
+     liminf = copy(obj)
+     x_best = copy(x)
+    else
+     liminf = -Inf
+     N = Inf
+   end
+  else
+    if status == :Optimal
+       limsup = copy(obj)
+       x_best = copy(x)
+    else
+       limsup = Inf
+       N = Inf
+   end
+  end
+
+return liminf, limsup, x_best,N
+end
+
+
+function BNB(m::JuMP.Model)
 
   #-----------------------------------------------------------------------------
   # Nodo raiz
@@ -62,18 +115,18 @@ function BNB(model::JuMP.Model)
   # inicialização da Lista
   Tempo = []
   lista = []
-  x_best = []
   sol = []
   AUX = []
   # Relaxação linear
   tic()
-  status = solve(model, relaxation=true)
-  x = copy(model.colVal)
-  obj = copy(model.objVal)
+  m_ = copy(m)
+  status = solve(m_, relaxation=true)
+  x = copy(m_.colVal)
+  obj = copy(m_.objVal)
 
-  sense = model.objSense
+  sense = m_.objSense
 
-  index = model.colCat
+  index = m_.colCat
   var_bin = []
   for  i =1:size(index)[1]
     if index[i] == :Bin
@@ -83,7 +136,7 @@ function BNB(model::JuMP.Model)
 
   frac = fractional(x)
 
-  if frac == zeros(size(x))
+  if frac == zeros(length(x))
     println("Solução inteira achada")
     x_best = copy(x)
     sol = copy(obj)
@@ -94,19 +147,19 @@ function BNB(model::JuMP.Model)
     println("Problema inviável")
   end
 
+ liminf, limsup, x_best, Max_iter = deep(m_,var_bin,frac)
+
   if sense == :Max
     sup = copy(obj)
-    inf = -Inf
+    inf = copy(liminf)
     limsup = copy(obj)
-    liminf = -Inf
   else
     inf = copy(obj)
-    sup = Inf
-    limsup = Inf
+    sup = copy(limsup)
     liminf = copy(obj)
   end
 
-raiz = nodo(0,model,inf,sup,x,frac,[],status,0)
+raiz = nodo(0,m_,inf,sup,x,frac,[],status,0)
 
 # Dados iniciais
 nivel = 1
@@ -119,10 +172,13 @@ int_sol = []
 
 ϵ = limsup - liminf
 iter = 1
-Max_iter = 1000
 Visit = 0
 
-while ϵ >= 1.0e-10 && iter <= Max_iter
+if Max_iter == Inf
+  Max_iter = 50
+end
+
+while ϵ >= 1.0e-10 && iter <= Max_iter && lista != []
 
 
   for l=1:L
@@ -131,73 +187,65 @@ while ϵ >= 1.0e-10 && iter <= Max_iter
     # Nodo filho 1
     #############################################################################
 
-      m = copy(lista[l].model)
+      m1 = copy(lista[l].Model)
       frac = copy(lista[l].frac)
       i_ = branch(frac,var_bin)
-      m.colUpper[i_] = 0
-      status = solve(m, relaxation=true)
-      x = copy(m.colVal)
-      obj = copy(m.objVal)
+      m1.colUpper[i_] = 0
+      status = solve(m1, relaxation=true)
+      x = copy(m1.colVal)
+      obj = copy(m1.objVal)
       frac = fractional(x)
 
       if sense == :Max
         sup = copy(obj)
-        if frac == zeros(size(x))
+        if frac == zeros(length(x))
          inf = copy(obj)
         else
-         inf = -Inf
+         inf = copy(liminf)
         end
       else
         inf = copy(obj)
-        if frac == zeros(size(x))
+        if frac == zeros(length(x))
         sup = copy(obj)
         else
-        sup = Inf
+        sup = copy(limsup)
         end
       end
 
-      if frac == zeros(size(x))
+      if frac == zeros(length(x))
         x_int = copy(x)
       else
         x_int = []
       end
 
-    filho1 = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
+    filho1 = nodo(nivel,m1,inf,sup,x,frac,x_int,status,0)
     push!(lista,filho1)
 
     #############################################################################
     # Nodo filho 2
     #############################################################################
-    m = lista[l].model
-    m.colLower[i_] = 1
-    status = solve(m, relaxation=true)
-    x = copy(m.colVal)
-    obj = copy(m.objVal)
+    m2 = copy(lista[l].Model)
+    m2.colLower[i_] = 1
+    status = solve(m2, relaxation=true)
+    x = copy(m2.colVal)
+    obj = copy(m2.objVal)
     frac = fractional(x)
 
     if sense == :Max
       sup = copy(obj)
-      if frac == zeros(size(x))
-       inf = copy(obj)
-      else
-       inf = -Inf
-      end
+      inf = copy(liminf)
     else
       inf = copy(obj)
-      if frac == zeros(size(x))
-      sup = copy(obj)
-      else
-      sup = Inf
-      end
+      sup = copy(limsup)
     end
 
-    if frac == zeros(size(x))
+    if frac == zeros(length(x))
       x_int = copy(x)
     else
       x_int = []
     end
 
-    filho2 = nodo(nivel,m,inf,sup,x,frac,x_int,status,0)
+    filho2 = nodo(nivel,m2,inf,sup,x,frac,x_int,status,0)
     push!(lista,filho2)
     lista[l].visit = 1
   end
@@ -218,7 +266,7 @@ while ϵ >= 1.0e-10 && iter <= Max_iter
             int_sol = copy([int_sol;[lista[l].inf]])
             AUX = copy([AUX;Matrix([lista[l].inf lista[l].x_relax'])])
           else
-            int_sol = copy([int_sol;[-Inf]])
+            int_sol = copy([int_sol;[liminf]])
         end
       end
       limsup = maximum(SUP)
@@ -232,7 +280,7 @@ while ϵ >= 1.0e-10 && iter <= Max_iter
           int_sol = copy([int_sol;[lista[l].sup]])
           AUX = copy([AUX;Matrix([lista[l].sup lista[l].x_relax'])])
         else
-          int_sol = copy([int_sol;[Inf]])
+          int_sol = copy([int_sol;[limsup]])
         end
       end
       liminf = minimum(INFI)
@@ -269,20 +317,35 @@ while ϵ >= 1.0e-10 && iter <= Max_iter
     iter = copy(iter) + 1
 end
 
+if ϵ >= 1.0e-10 &&  iter > Max_iter && lista != []
+  l = rand(collect(1:size(lista)[1]))
+  liminf_, limsup_, x_best_ = deep(lista[l].Model,var_bin,lista[l].frac)
+  if sense == :Max && liminf_ >= liminf
+    liminf = copy(liminf_)
+    x_best = copy(x_best_)
+  elseif sense == :Min && limsup_ <= limsup
+    limsup = copy(limsup_)
+    x_best = copy(x_best_)
+  end
+end
+
 if iter == Max_iter && x_best != []
   status = :Subotimal
-elseif ϵ < 1.0e-10 && x_best == []
+elseif ϵ < 1.0e-10
+  if sense == :Max && liminf == -Inf
   status = :Infeasible
+elseif sense == :Min && limsup == Inf
+   status = :Infeasible
+  end
 elseif iter == Max_iter && x_best == []
   status = :Nosolutionfound
 else
   status = :Optimal
 end
-solution =raiz.model
-solution.objVal = sol
-solution.colVal = x_best
-solution.objBound = ϵ
+m.objVal = sol
+m.colVal = x_best
+m.objBound = maximum([ϵ;0])
 Tempo = toc()
-return solution,status,Tempo, Visit
+return m,status,Tempo, Visit
 
 end
