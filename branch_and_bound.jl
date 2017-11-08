@@ -65,7 +65,7 @@ function deep(m::JuMP.Model,var_bin,frac)
     k = 1
     sense = m_.objSense
     status = :Optimal
-    while frac != zeros(size(frac)) && status == :Optimal
+    while frac != zeros(length(frac)) && status == :Optimal
       i_ = branch(frac,var_bin)
       if mod(k,2) == 0
          m_.colUpper[i_] = 0
@@ -116,6 +116,7 @@ function BNB(m::JuMP.Model)
   Tempo = []
   lista = []
   sol = []
+  x_best = []
   AUX = []
   # Relaxação linear
   tic()
@@ -138,13 +139,12 @@ function BNB(m::JuMP.Model)
 
   if frac == zeros(length(x))
     println("Solução inteira achada")
-    x_best = copy(x)
-    sol = copy(obj)
-    return sol,x_best
+    return m_
   end
 
   if status == :Infeasible
     println("Problema inviável")
+    return m_
   end
 
  liminf, limsup, x_best, Max_iter = deep(m_,var_bin,frac)
@@ -174,11 +174,11 @@ int_sol = []
 iter = 1
 Visit = 0
 
-if Max_iter == Inf
-  Max_iter = 50
+if Max_iter  >= 50
+  Max_iter = 10
 end
 
-while ϵ >= 1.0e-10 && iter <= Max_iter && lista != []
+while ϵ >= 1.0e-1 && iter <= Max_iter && lista != []
 
 
   for l=1:L
@@ -269,7 +269,7 @@ while ϵ >= 1.0e-10 && iter <= Max_iter && lista != []
             int_sol = copy([int_sol;[liminf]])
         end
       end
-      limsup = maximum(SUP)
+      limsup = minimum(SUP)
       liminf = maximum(int_sol)
     else
       for l=1:L
@@ -283,7 +283,7 @@ while ϵ >= 1.0e-10 && iter <= Max_iter && lista != []
           int_sol = copy([int_sol;[limsup]])
         end
       end
-      liminf = minimum(INFI)
+      liminf = maximum(INFI)
       limsup = minimum(int_sol)
     end
 
@@ -317,7 +317,10 @@ while ϵ >= 1.0e-10 && iter <= Max_iter && lista != []
     iter = copy(iter) + 1
 end
 
-if ϵ >= 1.0e-10 &&  iter > Max_iter && lista != []
+liminf_ = []
+limsup_ = []
+
+if ϵ >= 1.0e-1 &&  iter > Max_iter && lista != []
   l = rand(collect(1:size(lista)[1]))
   liminf_, limsup_, x_best_ = deep(lista[l].Model,var_bin,lista[l].frac)
   if sense == :Max && liminf_ >= liminf
@@ -329,15 +332,14 @@ if ϵ >= 1.0e-10 &&  iter > Max_iter && lista != []
   end
 end
 
-if iter == Max_iter && x_best != []
+if iter - 1 == Max_iter &&  ϵ > 1.0e-1 && x_best != []
   status = :Subotimal
-elseif ϵ < 1.0e-10
-  if sense == :Max && liminf == -Inf
-  status = :Infeasible
-elseif sense == :Min && limsup == Inf
-   status = :Infeasible
+  if sense == :Max
+    sol = copy(liminf)
+  else
+    sol = copy(limsup)
   end
-elseif iter == Max_iter && x_best == []
+elseif iter - 1 == Max_iter && x_best == []
   status = :Nosolutionfound
 else
   status = :Optimal
