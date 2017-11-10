@@ -1,0 +1,11 @@
+
+module SolverMIP
+include("branch_and_bound.jl")
+
+export
+
+# Função
+BNB
+
+include("branch_and_bound.jl")
+end
