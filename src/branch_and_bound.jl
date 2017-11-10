@@ -1,4 +1,4 @@
-#teste4
+
 using JuMP, DataStructures
 
 mutable struct nodo
@@ -300,19 +300,29 @@ Podas = 0
 Max_iter =1000
 
 while ϵ >= 1.0e-1 && iter <= Max_iter
-
+  #############################################################################
+  # Seleção do problema da lista para fazer branch
+  #############################################################################
   pai, l = selection(lista,sense,liminf,limsup)
   deleteat!(lista,l)
-  Visit = Visit + 1
-
+  Visit = Visit + 1 # Número do nós onde se fez branch
+  #############################################################################
+  # Adicionar os nós filhos do problema selecionado da lista
+  #############################################################################
   lista  = filhos(pai,lista,var_bin,sense,liminf,limsup)
-
+  #############################################################################
+  # Atualização do lowere (upper bound) para o problema de Min (Max)
+  #############################################################################
   liminf, limsup, AUX, int_sol = gap(lista,sense,liminf,limsup,AUX,int_sol)
-
+  #############################################################################
+  # Podas da árvore
+  #############################################################################
   lista, Podas = poda(lista,sense,liminf,limsup,Podas)
-
+  #############################################################################
+  # Atualização do upper (lower) bound pra o problema de Min (Max)
+  #############################################################################
    L = size(lista)[1]
-   ϵ = limsup - liminf
+   ϵ = limsup - liminf # Atualização do ϵ e do x_best (melhor solução inteira)
 
     if AUX != []
       if sense == :Max
@@ -351,7 +361,9 @@ elseif lista == [] && x_best == []
 else
   status = :Optimal
 end
-
+#############################################################################
+# Prenchimento dos outputs
+#############################################################################
 m.objVal = sol
 m.colVal = x_best
 m.objBound = maximum([ϵ 0])
