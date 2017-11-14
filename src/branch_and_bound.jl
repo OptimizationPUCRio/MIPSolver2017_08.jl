@@ -339,7 +339,7 @@ Podas = 0
 
 tempo_aux = 0
 
-Max_iter =500
+Max_iter =2000
 
 while ϵ >= 1.0e-1 && iter <= Max_iter
   tic()
