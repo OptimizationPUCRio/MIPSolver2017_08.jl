@@ -49,7 +49,7 @@ function poda(lista_,sense,liminf,limsup, P)
 end
 
 function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgSolver = JuMP.UnsetSolver())
-  m_ = copy(m)
+    m_ = deepcopy(m)
     N = 1
     liminf = []
     limsup = []
@@ -57,22 +57,44 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
     x_best = []
     x = []
     k = 1
-    sense = m_.objSense
-    status = :Optimal
-    while frac != zeros(length(var_bin)) && status == :Optimal
+    sense = m.objSense
+    status1 = []
+    status2 = []
+   time = 0
+
+    while frac != zeros(length(var_bin))
+      tic()
+      m1 = deepcopy(m_)
+      m2 = deepcopy(m_)
       i_ = branch(frac,var_bin)
       if mod(k,2) == 0
-         m_.colUpper[i_] = 0
-         status = solve(m_, relaxation=true)
-         x = copy(m_.colVal)
-         obj = copy(m_.objVal)
+
+         m1.colUpper[i_] = 0
+         status1 = solve(m1, relaxation=true)
+         x = copy(m1.colVal)
+         obj = copy(m1.objVal)
          frac = fractional(x,var_bin)
-      else
-        m_.colLower[i_] = 1
-        status = solve(m_, relaxation=true)
-        x = copy(m_.colVal)
-        obj = copy(m_.objVal)
+         m_ = deepcopy(m1)
+      elseif  mod(k,2) == 1
+
+        m2.colLower[i_] = 1
+        status2 = solve(m2, relaxation=true)
+        x = copy(m2.colVal)
+        obj = copy(m2.objVal)
         frac = fractional(x,var_bin)
+        m_ = deepcopy(m2)
+      end
+     time_aux = toc()
+     time = time + time_aux
+      if status1 == :Infeasible && status2 == :Optimal
+        m_ = deepcopy(m2)
+      elseif status2 == :Infeasible && status1 == :Optimal
+        m_ = deepcopy(m1)
+      elseif  status1 == :Infeasible && status2 == :Infeasible
+      break
+      end
+      if time >= 60
+        break
       end
       k = k + 1
       N = N + 1
@@ -80,7 +102,7 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
 
 
   if sense == :Max
-    if status == :Optimal
+    if frac == zeros(length(var_bin))
      liminf = copy(obj)
      x_best = copy(x)
     else
@@ -88,7 +110,7 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
      N = Inf
    end
   else
-    if status == :Optimal
+    if frac == zeros(length(var_bin))
        limsup = copy(obj)
        x_best = copy(x)
     else
@@ -105,7 +127,7 @@ function filhos(pai,lista_,var_bin,sense,liminf,limsup, solver::MathProgBase.Abs
   #############################################################################
   # Nodo filho 1
   #############################################################################
-    m1 = copy(pai.Model)
+    m1 = deepcopy(pai.Model)
     frac = copy(pai.frac)
     i_ = branch(frac,var_bin)
     m1.colUpper[i_] = 0
@@ -134,7 +156,7 @@ function filhos(pai,lista_,var_bin,sense,liminf,limsup, solver::MathProgBase.Abs
   #############################################################################
   # Nodo filho 2
   #############################################################################
-  m2 = copy(pai.Model)
+  m2 = deepcopy(pai.Model)
   m2.colLower[i_] = 1
   status = solve(m2, relaxation=true)
   x = copy(m2.colVal)
@@ -233,15 +255,15 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   m.ext[:Podas] = []
   m.ext[:Iter] = []
   m.ext[:IntegerSolutions] = []
-  Tempo = []
+  Tempo = 0
   lista = []
   sol = []
   x_best = []
-  IntSol = []
+  IntSol = 0
   AUX = []
   # Relaxação linear
-  tic()
-  m_ = copy(m)
+
+  m_ = deepcopy(m)
   status = solve(m_, relaxation=true)
   x = copy(m_.colVal)
   obj = copy(m_.objVal)
@@ -259,7 +281,6 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   frac = fractional(x,var_bin)
 
   if frac == zeros(length(var_bin))
-    println("Solução inteira achada")
     m.objVal = copy(obj)
     m.colVal = copy(x)
     m.objBound = 0
@@ -273,7 +294,6 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   end
 
   if status == :Infeasible
-    println("Problema inviável")
     m.objVal = :Infeasible
     m.colVal = []
     m.objBound = 0
@@ -318,9 +338,12 @@ iter = 1
 Visit = 0
 Podas = 0
 
-Max_iter =1000
+tempo_aux = 0
+
+Max_iter =500
 
 while ϵ >= 1.0e-1 && iter <= Max_iter
+  tic()
   #############################################################################
   # Seleção do problema da lista para fazer branch
   #############################################################################
@@ -364,9 +387,14 @@ while ϵ >= 1.0e-1 && iter <= Max_iter
           end
       end
     end
+    tempo_aux = toc()
+    Tempo = Tempo + tempo_aux
     iter = copy(iter) + 1
+    if Tempo >= 600
+      break
+    end
 end
-Tempo = toc()
+
 
 if iter - 1 == Max_iter &&  ϵ > 1.0e-1 && x_best != []
   status = :Subotimal
