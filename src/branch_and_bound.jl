@@ -43,8 +43,8 @@ function poda(lista_,sense,liminf,limsup, P)
     end
   end
   P =copy(P + P_)
-  lista = copy(deleteat!(lista_,erase))
-  return lista, P
+  deleteat!(lista_,erase)
+  return  P
 end
 
 function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgSolver = JuMP.UnsetSolver())
@@ -92,7 +92,7 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
       elseif  status1 == :Infeasible && status2 == :Infeasible
       break
       end
-      if time >= 60
+      if time >= 300
         break
       end
       k = k + 1
@@ -121,8 +121,83 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
 return liminf, limsup, x_best,N
 end
 
-function filhos(pai,lista_,var_bin,sense,liminf,limsup, solver::MathProgBase.AbstractMathProgSolver = JuMP.UnsetSolver())
-  lista = copy(lista_)
+function largura(lista,sense,var_bin,liminf,limsup)
+  liminf_ = copy(liminf)
+  limsup_ = copy(limsup)
+  Podas_aux = 0
+  AUX = []
+  int_sol = []
+  x_best = []
+  IntSol = 0
+  lista_aux = copy(lista)
+  Nivel = 5000
+  k = 1
+  time = 0
+  time_aux = 0
+   while k <= Nivel && IntSol == 0
+     tic()
+     L = length(lista_aux)
+     for l=1:L
+        filhos(lista_aux[l],lista_aux,var_bin,sense,liminf_,limsup_)
+     end
+     L = length(lista_aux)
+     erase = []
+     for l=1:L
+       if lista_aux[l].nivel == k - 1
+         erase = copy([erase;[l]])
+       end
+     end
+     deleteat!(lista_aux,erase)
+     liminf_, limsup_, AUX, int_sol, IntSol  = gap(lista_aux,sense,liminf_,limsup_,AUX,int_sol,IntSol)
+     Podas_aux = poda(lista_aux,sense,liminf,limsup,Podas_aux)
+     k = k + 1
+     time_aux = toc()
+     time = time + time_aux
+     if time >= 600
+       break
+     end
+   end
+   if AUX != []
+     if sense == :Max
+         t,r = size(AUX)
+         for i=1:t
+           if liminf_ == AUX[i,1]
+             x_best = AUX[i,2:end]
+             sol = liminf_
+           end
+         end
+       else
+         t,r = size(AUX)
+         for i=1:t
+           if limsup_ == AUX[i,1]
+             x_best = AUX[i,2:end]
+             sol = limsup_
+           end
+         end
+     end
+   end
+   if sense == :Max
+     if IntSol != 0
+      liminf_ = copy(obj)
+      x_best = copy(x)
+     else
+      liminf_ = -Inf
+      N = Inf
+    end
+   else
+     if IntSol != 0
+        limsup_ = copy(obj)
+        x_best = copy(x)
+     else
+        limsup_ = Inf
+        N = Inf
+    end
+   end
+   return liminf_, limsup_, x_best, time, Podas_aux, k, sol
+end
+
+
+function filhos(pai,lista_,var_bin,sense,liminf,limsup)
   #############################################################################
   # Nodo filho 1
   #############################################################################
@@ -150,7 +225,7 @@ function filhos(pai,lista_,var_bin,sense,liminf,limsup, solver::MathProgBase.Abs
     end
   nivel = pai.nivel + 1
   filho1 = nodo(nivel,m1,inf,sup,x,frac,x_int,status)
-  push!(lista,filho1)
+  push!(lista_,filho1)
 
   #############################################################################
   # Nodo filho 2
@@ -177,8 +252,8 @@ function filhos(pai,lista_,var_bin,sense,liminf,limsup, solver::MathProgBase.Abs
   end
 
   filho2 = nodo(nivel,m2,inf,sup,x,frac,x_int,status)
-  push!(lista,filho2)
-return lista
+  push!(lista_,filho2)
+return nothing
 end
 
 function selection(lista,sense,liminf,limsup)
@@ -248,12 +323,12 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   # Nodo raiz
   #-----------------------------------------------------------------------------
   # inicialização da Lista
-  m.ext[:Tempo] = []
+  m.ext[:time] = []
   m.ext[:status] = []
-  m.ext[:Visit] = []
+  m.ext[:nodes] = []
   m.ext[:Podas] = []
   m.ext[:Iter] = []
-  m.ext[:IntegerSolutions] = []
+  m.ext[:intsols] = []
   Tempo = 0
   lista = []
   sol = []
@@ -283,25 +358,25 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
     m.objVal = copy(obj)
     m.colVal = copy(x)
     m.objBound = 0
-    m.ext[:Tempo] = 0
+    m.ext[:time] = 0
     m.ext[:status] = status
-    m.ext[:Visit] = 0
+    m.ext[:nodes] = 0
     m.ext[:Podas] = 0
     m.ext[:Iter] = 0
-    m.ext[:IntegerSolutions] = 1
+    m.ext[:intsols] = 1
     return nothing
   end
 
   if status == :Infeasible
-    m.objVal = :Infeasible
+    m.objVal = NaN
     m.colVal = []
     m.objBound = 0
-    m.ext[:Tempo] = 0
+    m.ext[:time] = 0
     m.ext[:status] = status
-    m.ext[:Visit] = 0
+    m.ext[:nodes] = 0
     m.ext[:Podas] = 0
     m.ext[:Iter] = 0
-    m.ext[:IntegerSolutions] = 0
+    m.ext[:intsols] = 0
     return nothing
   end
 
@@ -329,6 +404,24 @@ nivel = 1
 iter = 1
 
 push!(lista, raiz)
+
+if x_best ==[]
+  liminf, limsup, x_best, time, Podas_aux, iter_aux, sol = largura(lista,sense,var_bin,liminf,limsup)
+  ϵ_aux = limsup - liminf
+  if x_best !=[] && ϵ_aux <= 1.0e-1
+      m.objVal = sol
+      m.colVal = x_best
+      m.objBound = 0
+      m.ext[:time] = time
+      m.ext[:status] = status
+      m.ext[:nodes] = 0
+      m.ext[:Podas] = Podas_aux
+      m.ext[:Iter] = iter_aux
+      m.ext[:intsols] = 1
+      return nothing
+  end
+end
+
 L = 1
 int_sol = []
 
@@ -339,7 +432,7 @@ Podas = 0
 
 tempo_aux = 0
 
-Max_iter =2000
+Max_iter =5000
 
 while ϵ >= 1.0e-1 && iter <= Max_iter
   tic()
@@ -352,7 +445,7 @@ while ϵ >= 1.0e-1 && iter <= Max_iter
   #############################################################################
   # Adicionar os nós filhos do problema selecionado da lista
   #############################################################################
-  lista  = filhos(pai,lista,var_bin,sense,liminf,limsup)
+  filhos(pai,lista,var_bin,sense,liminf,limsup)
   #############################################################################
   # Atualização do lowere (upper bound) para o problema de Min (Max)
   #############################################################################
@@ -360,7 +453,7 @@ while ϵ >= 1.0e-1 && iter <= Max_iter
   #############################################################################
   # Podas da árvore
   #############################################################################
-  lista, Podas = poda(lista,sense,liminf,limsup,Podas)
+  Podas = poda(lista,sense,liminf,limsup,Podas)
   #############################################################################
   # Atualização do upper (lower) bound pra o problema de Min (Max)
   #############################################################################
@@ -406,6 +499,7 @@ elseif iter - 1 == Max_iter && x_best == []
   status = :Nosolutionfound
 elseif lista == [] && x_best == []
   status = :Infeasible
+  sol = NaN
 else
   status = :Optimal
 end
@@ -415,12 +509,12 @@ end
 m.objVal = sol
 m.colVal = x_best
 m.objBound = maximum([ϵ 0])
-m.ext[:Tempo] = Tempo
+m.ext[:time] = Tempo
 m.ext[:status] = status
-m.ext[:Visit] = Visit
+m.ext[:nodes] = Visit
 m.ext[:Podas] = Podas
 m.ext[:Iter] = iter
-m.ext[:IntegerSolutions] = IntSol
+m.ext[:intsols] = IntSol
 
 return nothing
 
