@@ -92,7 +92,7 @@ function deep(m::JuMP.Model,var_bin,frac, solver::MathProgBase.AbstractMathProgS
       elseif  status1 == :Infeasible && status2 == :Infeasible
       break
       end
-      if time >= 300
+      if time >= 120
         break
       end
       k = k + 1
@@ -133,10 +133,14 @@ function largura(lista,sense,var_bin,liminf,limsup)
   Nivel = 5000
   k = 1
   time = 0
+  sol = []
   time_aux = 0
+  Visit_ = 0
+  Visit_aux = 0
    while k <= Nivel && IntSol == 0
      tic()
      L = length(lista_aux)
+     Visit_aux = copy(L)
      for l=1:L
         filhos(lista_aux[l],lista_aux,var_bin,sense,liminf_,limsup_)
      end
@@ -153,7 +157,8 @@ function largura(lista,sense,var_bin,liminf,limsup)
      k = k + 1
      time_aux = toc()
      time = time + time_aux
-     if time >= 600
+     Visit_ = Visit_ + Visit_aux
+     if time >= 350
        break
      end
    end
@@ -177,23 +182,15 @@ function largura(lista,sense,var_bin,liminf,limsup)
      end
    end
    if sense == :Max
-     if IntSol != 0
-      liminf_ = copy(obj)
-      x_best = copy(x)
-     else
-      liminf_ = -Inf
-      N = Inf
+     if IntSol == 0
+        liminf_ = -Inf
     end
    else
-     if IntSol != 0
-        limsup_ = copy(obj)
-        x_best = copy(x)
-     else
+     if IntSol == 0
         limsup_ = Inf
-        N = Inf
     end
    end
-   return liminf_, limsup_, x_best, time, Podas_aux, k, sol
+   return liminf_, limsup_, x_best, time, Podas_aux, k, sol, Visit_, IntSol
 end
 
 
@@ -357,7 +354,7 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   if frac == zeros(length(var_bin))
     m.objVal = copy(obj)
     m.colVal = copy(x)
-    m.objBound = 0
+    m.objBound = copy(obj)
     m.ext[:time] = 0
     m.ext[:status] = status
     m.ext[:nodes] = 0
@@ -370,7 +367,7 @@ function BNB(m::JuMP.Model, solver::MathProgBase.AbstractMathProgSolver = JuMP.U
   if status == :Infeasible
     m.objVal = NaN
     m.colVal = []
-    m.objBound = 0
+    m.objBound = NaN
     m.ext[:time] = 0
     m.ext[:status] = status
     m.ext[:nodes] = 0
@@ -405,20 +402,31 @@ iter = 1
 
 push!(lista, raiz)
 
+Visit_ = 0
 if x_best ==[]
-  liminf, limsup, x_best, time, Podas_aux, iter_aux, sol = largura(lista,sense,var_bin,liminf,limsup)
-  ϵ_aux = limsup - liminf
+  liminf_, limsup_, x_best, time, Podas_aux, iter_aux, sol, Visit_, IntSol = largura(lista,sense,var_bin,liminf,limsup)
+  ϵ_aux = limsup_ - liminf_
   if x_best !=[] && ϵ_aux <= 1.0e-1
       m.objVal = sol
       m.colVal = x_best
-      m.objBound = 0
+      if sense == :Max
+        m.objBound = limsup_
+      else
+        m.objBound = liminf_
+      end
       m.ext[:time] = time
       m.ext[:status] = status
-      m.ext[:nodes] = 0
+      m.ext[:nodes] = Visit_
       m.ext[:Podas] = Podas_aux
       m.ext[:Iter] = iter_aux
-      m.ext[:intsols] = 1
+      m.ext[:intsols] = IntSol
       return nothing
+  elseif x_best !=[] && ϵ_aux > 1.0e-1
+      if sense == :Max
+        liminf = copy(liminf_)
+      else
+        limsup = copy(limsup_)
+      end
   end
 end
 
@@ -482,7 +490,7 @@ while ϵ >= 1.0e-1 && iter <= Max_iter
     tempo_aux = toc()
     Tempo = Tempo + tempo_aux
     iter = copy(iter) + 1
-    if Tempo >= 600
+    if Tempo >= 300
       break
     end
 end
@@ -496,7 +504,8 @@ if iter - 1 == Max_iter &&  ϵ > 1.0e-1 && x_best != []
     sol = copy(limsup)
   end
 elseif iter - 1 == Max_iter && x_best == []
-  status = :Nosolutionfound
+  status = :unsolved
+  sol = NaN
 elseif lista == [] && x_best == []
   status = :Infeasible
   sol = NaN
@@ -508,7 +517,11 @@ end
 #############################################################################
 m.objVal = sol
 m.colVal = x_best
-m.objBound = maximum([ϵ 0])
+if sense == :Max
+  m.objBound = limsup
+else
+  m.objBound = liminf
+end
 m.ext[:time] = Tempo
 m.ext[:status] = status
 m.ext[:nodes] = Visit
