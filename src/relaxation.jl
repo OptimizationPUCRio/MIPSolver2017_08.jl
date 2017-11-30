@@ -76,13 +76,12 @@ function lagrange(m::JuMP.Model,n)
   end
 
   ω = initial_tour(n,distmx)[1]
-  #ω = 300
   u = zeros(n)
   iter = 1
-  max_iter = 10000
+  max_iter = 1000
   x = []
   z = []
-  test = zeros(max_iter)
+  converge = zeros(max_iter + 1)
   y = Array{Float64,1}(n)
   c_e = Array{Float64,1}(number_of_edges)
   c_e_ = Array{Float64,1}(number_of_edges)
@@ -138,13 +137,18 @@ function lagrange(m::JuMP.Model,n)
     end
     z = (sum(full(adjacency_matrix(g_tree)).*distmx_))/2 +  2*sum(u)
     x = vcat([diag(full(adjacency_matrix(g_tree)),i) for i=1:n-1]...)
-    u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
-    if ω - z <= 5e-1
+    if y == zeros(n)
       break
     end
-    test[iter]=z
-    iter = iter+1
+    u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
+    iter = iter + 1
+    converge[iter] = z
+    #=if abs(converge[iter - 1] - converge[iter]) <= 1e-2
+      break
+    end=#
   end
+  #m.objVal = copy(z)
+  #m.colVal = copy(x)
   return z, x
 end
 
