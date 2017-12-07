@@ -75,7 +75,7 @@ function lagrange(m::JuMP.Model,n)
     rem_edge!(g,1,v)
   end
 
-  ω = initial_tour(n,distmx)[1]
+  #ω = initial_tour(n,distmx)[1]
   u = zeros(n)
   iter = 1
   max_iter = 1000
@@ -140,7 +140,11 @@ function lagrange(m::JuMP.Model,n)
     if y == zeros(n)
       break
     end
-    u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
+    μ = 1/iter
+    for i=1:n
+      u[i] = minimum([u[i] + μ*y[i];0])
+    end
+    #u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
     iter = iter + 1
     converge[iter] = z
     #=if abs(converge[iter - 1] - converge[iter]) <= 1e-2
