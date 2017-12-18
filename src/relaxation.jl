@@ -11,14 +11,14 @@ function extract_data(model::JuMP.Model)
     return c, xlb, xub
 end
 
-function lagrange(m::JuMP.Model,n)
+function lagrange(m::JuMP.Model)
   c, xlb, xub = extract_data(m)
   c = float(c)
   c_ = copy(c)
-  #number_of_edges = length(c)
-  #x = variable(Int)
-  #n = Int(fzero(x^2 - x - 2*number_of_edges, 1.0))
-  number_of_edges = Int((n^2 - n)/2)
+  number_of_edges = length(c)
+  x = variable(Int)
+  n = Int(fzero(x^2 - x - 2*number_of_edges, 1.0))
+
 
   ind_fixas_0 = find(xub + xlb .== 0)
   ind_fixas_1 = find(xub + xlb .== 2)
@@ -42,28 +42,31 @@ function lagrange(m::JuMP.Model,n)
   for i=1:n
     δ = degree(g,i)
     if δ > 2
-      #m.objVal = :Infeasible
-      #m.colVal = NaN
-      #return nothing
-      print("there is a problem")
+      m.objVal = :Infeasible
+      m.colVal = NaN
+      return nothing
     end
   end
-
-  S = vcat([collect(combinations(2:n,i)) for i=1:n]...)
-  s = length(S)
-  for i=1:s
-    if length(S[i]) >= 2
-        sub_graph = induced_subgraph(g,S[i])[1]
-        if ne(sub_graph) > nv(sub_graph) - 1
-          #m.objVal = :Infeasible
-          #m.colVal = NaN
-          #return nothing
-          print("there is a problem")
-          #break
-        end
-    end
-  end
-
+  #=
+ if ind_fixas_1 !=[]
+   #S = vcat([collect(combinations(2:n,i)) for i=1:n]...)
+   Subsets = subsets(distmx_)
+   s = size(Subsets,2)
+   for i=1:s
+     if Subsets[1,i] == 0
+       S = pertence(Subsets[:,i])
+       if length(S)>3
+         sub_graph = induced_subgraph(g,S)[1]
+         if ne(sub_graph) > nv(sub_graph) - 1
+           m.objVal = :Infeasible
+           m.colVal = NaN
+           return nothing
+         end
+       end
+     end
+   end
+ end
+=#
   for i=1:number_of_edges
     if i ∉ ind_fixas_0
       add_edge!(g,e[i,1],e[i,2])
@@ -75,10 +78,10 @@ function lagrange(m::JuMP.Model,n)
     rem_edge!(g,1,v)
   end
 
-  #ω = initial_tour(n,distmx)[1]
+  ω = 0.8(initial_tour(n,distmx)[1])
   u = zeros(n)
   iter = 1
-  max_iter = 1000
+  max_iter = 500
   x = []
   z = []
   converge = zeros(max_iter + 1)
@@ -140,20 +143,19 @@ function lagrange(m::JuMP.Model,n)
     if y == zeros(n)
       break
     end
+    #=
     μ = 1/iter
     for i=1:n
       u[i] = minimum([u[i] + μ*y[i];0])
     end
-    #u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
+    =#
+    u =  u + ((ω - z)/(sum(y[i]^2 for i=1:n)))*y
     iter = iter + 1
     converge[iter] = z
-    #=if abs(converge[iter - 1] - converge[iter]) <= 1e-2
-      break
-    end=#
+
   end
-  #m.objVal = copy(z)
-  #m.colVal = copy(x)
-  return z, x
+  m.objVal = copy(z)
+  return nothing
 end
 
 function create_edges(n,number_of_edges) # Cria as arestas a partir da Matriz de Adjacencia
@@ -207,48 +209,22 @@ distmx = zeros(n,n)
   return distmx
 end
 
-
-
-#=
-
-ind_fixas_0 = find(colUpper + colLower .== 0)
-ind_fixas_1 = find(colUpper + colLower .== 2)
-
-c[ind_fixas_0] = 1000
-c[ind_fixas_1] = 0
-
-distmx = zeros(n,n)
-t = 0
-for i=1:n
-    for j=i+1:n
-      t = t+1
-      distmx[i,j]=c[t]
+function subsets(Matrix) # Retorna todos os subconjuntos de vértices de uma Matriz de Adjacência
+  number_of_nodes = size(Matrix,1)
+  Subset_S = digits(1,2,number_of_nodes)
+  for i = 2:2^(number_of_nodes)-2
+    aux = digits(i,2,number_of_nodes)
+    Subset_S = hcat(Subset_S,aux)
+  end
+  return Subset_S
+end
+function pertence(x)
+  n = length(x)
+  nodes = []
+  for i=1:n
+    if x[i] == 1
+      nodes = copy([nodes;[i]])
     end
+  end
+  return nodes
 end
-distmx = distmx + distmx'
-
-V = copy(neighbors(g,1))
-for v in V
-  rem_edge!(g,1,v)
-end
-
-
-tree = kruskal_mst(g,distmx)
-cost = []
-for i=2:n
-  cost_ = (distmx[1,i],[1,i])
-  cost = copy([cost;[cost_]])
-end
-sort!(cost, by = x -> x[1])
-
-g_tree = Graph()
-
-add_vertices!(g_tree, nv(g))
-
-for i in 1:length(tree)
-  add_edge!(g_tree,tree[i])
-end
-for j in 1:2
-  add_edge!(g_tree, Edge(cost[j][2][1],cost[j][2][2]))
-end
-=#
